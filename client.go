@@ -27,15 +27,16 @@ type Conn struct {
 
 // A Client defines parameters for a DNS client.
 type Client struct {
-	Net            string            // if "tcp" or "tcp-tls" (DNS over TLS) a TCP query will be initiated, otherwise an UDP one (default is "" for UDP)
-	UDPSize        uint16            // minimum receive buffer for UDP messages
-	TLSConfig      *tls.Config       // TLS connection configuration
-	Timeout        time.Duration     // a cumulative timeout for dial, write and read, defaults to 0 (disabled) - overrides DialTimeout, ReadTimeout and WriteTimeout when non-zero
-	DialTimeout    time.Duration     // net.DialTimeout, defaults to 2 seconds - overridden by Timeout when that value is non-zero
-	ReadTimeout    time.Duration     // net.Conn.SetReadTimeout value for connections, defaults to 2 seconds - overridden by Timeout when that value is non-zero
-	WriteTimeout   time.Duration     // net.Conn.SetWriteTimeout value for connections, defaults to 2 seconds - overridden by Timeout when that value is non-zero
-	TsigSecret     map[string]string // secret(s) for Tsig map[<zonename>]<base64 secret>, zonename must be fully qualified
-	SingleInflight bool              // if true suppress multiple outstanding queries for the same Qname, Qtype and Qclass
+	Net            string                                                                 // if "tcp" or "tcp-tls" (DNS over TLS) a TCP query will be initiated, otherwise an UDP one (default is "" for UDP)
+	UDPSize        uint16                                                                 // minimum receive buffer for UDP messages
+	TLSConfig      *tls.Config                                                            // TLS connection configuration
+	Timeout        time.Duration                                                          // a cumulative timeout for dial, write and read, defaults to 0 (disabled) - overrides DialTimeout, ReadTimeout and WriteTimeout when non-zero
+	DialTimeout    time.Duration                                                          // net.DialTimeout, defaults to 2 seconds - overridden by Timeout when that value is non-zero
+	ReadTimeout    time.Duration                                                          // net.Conn.SetReadTimeout value for connections, defaults to 2 seconds - overridden by Timeout when that value is non-zero
+	WriteTimeout   time.Duration                                                          // net.Conn.SetWriteTimeout value for connections, defaults to 2 seconds - overridden by Timeout when that value is non-zero
+	TsigSecret     map[string]string                                                      // secret(s) for Tsig map[<zonename>]<base64 secret>, zonename must be fully qualified
+	SingleInflight bool                                                                   // if true suppress multiple outstanding queries for the same Qname, Qtype and Qclass
+	Dial           func(network, address string, timeout time.Duration) (net.Conn, error) // optional function for dialing
 	group          singleflight
 }
 
@@ -231,7 +232,9 @@ func (c *Client) exchange(ctx context.Context, m *Msg, a string) (r *Msg, rtt ti
 	dialDeadline := deadlineOrTimeoutOrCtx(ctx, deadline, c.dialTimeout())
 	dialTimeout := dialDeadline.Sub(time.Now())
 
-	if tls {
+	if c.Dial != nil {
+		co, err = DialWithDialer(network, a, dialTimeout, c.Dial)
+	} else if tls {
 		co, err = DialTimeoutWithTLS(network, a, c.TLSConfig, dialTimeout)
 	} else {
 		co, err = DialTimeout(network, a, dialTimeout)
@@ -491,6 +494,15 @@ func DialTimeout(network, address string, timeout time.Duration) (conn *Conn, er
 func DialWithTLS(network, address string, tlsConfig *tls.Config) (conn *Conn, err error) {
 	conn = new(Conn)
 	conn.Conn, err = tls.Dial(network, address, tlsConfig)
+	if err != nil {
+		return nil, err
+	}
+	return conn, nil
+}
+
+func DialWithDialer(network, address string, timeout time.Duration, dial func(network, address string, timeout time.Duration) (net.Conn, error)) (conn *Conn, err error) {
+	conn = new(Conn)
+	conn.Conn, err = dial(network, address, timeout)
 	if err != nil {
 		return nil, err
 	}
