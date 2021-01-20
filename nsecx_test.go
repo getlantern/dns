@@ -1,6 +1,9 @@
 package dns
 
-import "testing"
+import (
+	"strconv"
+	"testing"
+)
 
 func TestPackNsec3(t *testing.T) {
 	nsec3 := HashName("dnsex.nl.", SHA1, 0, "DEAD")
@@ -15,7 +18,7 @@ func TestPackNsec3(t *testing.T) {
 }
 
 func TestNsec3(t *testing.T) {
-	nsec3, _ := NewRR("sk4e8fj94u78smusb40o1n0oltbblu2r.nl. IN NSEC3 1 1 5 F10E9F7EA83FC8F3 SK4F38CQ0ATIEI8MH3RGD0P5I4II6QAN NS SOA TXT RRSIG DNSKEY NSEC3PARAM")
+	nsec3 := testRR("sk4e8fj94u78smusb40o1n0oltbblu2r.nl. IN NSEC3 1 1 5 F10E9F7EA83FC8F3 SK4F38CQ0ATIEI8MH3RGD0P5I4II6QAN NS SOA TXT RRSIG DNSKEY NSEC3PARAM")
 	if !nsec3.(*NSEC3).Match("nl.") { // name hash = sk4e8fj94u78smusb40o1n0oltbblu2r
 		t.Fatal("sk4e8fj94u78smusb40o1n0oltbblu2r.nl. should match sk4e8fj94u78smusb40o1n0oltbblu2r.nl.")
 	}
@@ -28,7 +31,7 @@ func TestNsec3(t *testing.T) {
 	if nsec3.(*NSEC3).Match("test.nl.") { // name hash = gd0ptr5bnfpimpu2d3v6gd4n0bai7s0q
 		t.Fatal("gd0ptr5bnfpimpu2d3v6gd4n0bai7s0q.nl. should not match sk4e8fj94u78smusb40o1n0oltbblu2r.nl.")
 	}
-	nsec3, _ = NewRR("nl. IN NSEC3 1 1 5 F10E9F7EA83FC8F3 SK4F38CQ0ATIEI8MH3RGD0P5I4II6QAN NS SOA TXT RRSIG DNSKEY NSEC3PARAM")
+	nsec3 = testRR("nl. IN NSEC3 1 1 5 F10E9F7EA83FC8F3 SK4F38CQ0ATIEI8MH3RGD0P5I4II6QAN NS SOA TXT RRSIG DNSKEY NSEC3PARAM")
 	if nsec3.(*NSEC3).Match("nl.") {
 		t.Fatal("sk4e8fj94u78smusb40o1n0oltbblu2r.nl. should not match a record without a owner hash")
 	}
@@ -112,6 +115,18 @@ func TestNsec3(t *testing.T) {
 			name:   "asd.com.",
 			covers: false,
 		},
+		{ // empty interval wildcard
+			rr: &NSEC3{
+				Hdr:        RR_Header{Name: "2n1tb3vairuobl6rkdvii42n9tfmialp.com."},
+				Hash:       1,
+				Flags:      1,
+				Iterations: 5,
+				Salt:       "F10E9F7EA83FC8F3",
+				NextDomain: "2N1TB3VAIRUOBL6RKDVII42N9TFMIALP",
+			},
+			name:   "*.asd.com.",
+			covers: true,
+		},
 		{ // name hash is before owner hash, not covered
 			rr: &NSEC3{
 				Hdr:        RR_Header{Name: "3V62ULR0NRE83V0RJA2VJGTLIF9V6RAB.com."},
@@ -127,7 +142,29 @@ func TestNsec3(t *testing.T) {
 	} {
 		covers := tc.rr.Cover(tc.name)
 		if tc.covers != covers {
-			t.Fatalf("Cover failed for %s: expected %t, got %t [record: %s]", tc.name, tc.covers, covers, tc.rr)
+			t.Fatalf("cover failed for %s: expected %t, got %t [record: %s]", tc.name, tc.covers, covers, tc.rr)
 		}
+	}
+}
+
+func TestNsec3EmptySalt(t *testing.T) {
+	rr, _ := NewRR("CK0POJMG874LJREF7EFN8430QVIT8BSM.com. 86400 IN NSEC3 1 1 0 - CK0Q1GIN43N1ARRC9OSM6QPQR81H5M9A  NS SOA RRSIG DNSKEY NSEC3PARAM")
+
+	if !rr.(*NSEC3).Match("com.") {
+		t.Fatalf("expected record to match com. label")
+	}
+}
+
+func BenchmarkHashName(b *testing.B) {
+	for _, iter := range []uint16{
+		150, 2500, 5000, 10000, ^uint16(0),
+	} {
+		b.Run(strconv.Itoa(int(iter)), func(b *testing.B) {
+			for n := 0; n < b.N; n++ {
+				if HashName("some.example.org.", SHA1, iter, "deadbeef") == "" {
+					b.Fatalf("HashName failed")
+				}
+			}
+		})
 	}
 }
