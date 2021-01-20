@@ -7,8 +7,8 @@ func TestCompareDomainName(t *testing.T) {
 	s2 := "miek.nl."
 	s3 := "www.bla.nl."
 	s4 := "nl.www.bla."
-	s5 := "nl"
-	s6 := "miek.nl"
+	s5 := "nl."
+	s6 := "miek.nl."
 
 	if CompareDomainName(s1, s2) != 2 {
 		t.Errorf("%s with %s should be %d", s1, s2, 2)
@@ -40,22 +40,21 @@ func TestCompareDomainName(t *testing.T) {
 
 func TestSplit(t *testing.T) {
 	splitter := map[string]int{
-		"www.miek.nl.":   3,
-		"www.miek.nl":    3,
-		"www..miek.nl":   4,
-		`www\.miek.nl.`:  2,
-		`www\\.miek.nl.`: 3,
-		".":              0,
-		"nl.":            1,
-		"nl":             1,
-		"com.":           1,
-		".com.":          2,
+		"www.miek.nl.":    3,
+		"www.miek.nl":     3,
+		"www..miek.nl":    4,
+		`www\.miek.nl.`:   2,
+		`www\\.miek.nl.`:  3,
+		`www\\\.miek.nl.`: 2,
+		".":               0,
+		"nl.":             1,
+		"nl":              1,
+		"com.":            1,
+		".com.":           2,
 	}
 	for s, i := range splitter {
 		if x := len(Split(s)); x != i {
 			t.Errorf("labels should be %d, got %d: %s %v", i, x, s, Split(s))
-		} else {
-			t.Logf("%s %v", s, Split(s))
 		}
 	}
 }
@@ -81,25 +80,45 @@ func TestSplit2(t *testing.T) {
 	}
 }
 
+func TestNextLabel(t *testing.T) {
+	type next struct {
+		string
+		int
+	}
+	nexts := map[next]int{
+		{"", 1}:             0,
+		{"www.miek.nl.", 0}: 4,
+		{"www.miek.nl.", 4}: 9,
+		{"www.miek.nl.", 9}: 12,
+	}
+	for s, i := range nexts {
+		x, ok := NextLabel(s.string, s.int)
+		if i != x {
+			t.Errorf("label should be %d, got %d, %t: nexting %d, %s", i, x, ok, s.int, s.string)
+		}
+	}
+}
+
 func TestPrevLabel(t *testing.T) {
 	type prev struct {
 		string
 		int
 	}
 	prever := map[prev]int{
-		prev{"www.miek.nl.", 0}: 12,
-		prev{"www.miek.nl.", 1}: 9,
-		prev{"www.miek.nl.", 2}: 4,
+		{"", 1}:             0,
+		{"www.miek.nl.", 0}: 12,
+		{"www.miek.nl.", 1}: 9,
+		{"www.miek.nl.", 2}: 4,
 
-		prev{"www.miek.nl", 0}: 11,
-		prev{"www.miek.nl", 1}: 9,
-		prev{"www.miek.nl", 2}: 4,
+		{"www.miek.nl", 0}: 11,
+		{"www.miek.nl", 1}: 9,
+		{"www.miek.nl", 2}: 4,
 
-		prev{"www.miek.nl.", 5}: 0,
-		prev{"www.miek.nl", 5}:  0,
+		{"www.miek.nl.", 5}: 0,
+		{"www.miek.nl", 5}:  0,
 
-		prev{"www.miek.nl.", 3}: 0,
-		prev{"www.miek.nl", 3}:  0,
+		{"www.miek.nl.", 3}: 0,
+		{"www.miek.nl", 3}:  0,
 	}
 	for s, i := range prever {
 		x, ok := PrevLabel(s.string, s.int)
@@ -157,13 +176,15 @@ func TestIsDomainName(t *testing.T) {
 		lab int
 	}
 	names := map[string]*ret{
-		"..":               {false, 1},
-		"@.":               {true, 1},
-		"www.example.com":  {true, 3},
-		"www.e%ample.com":  {true, 3},
-		"www.example.com.": {true, 3},
-		"mi\\k.nl.":        {true, 2},
-		"mi\\k.nl":         {true, 2},
+		"..":                     {false, 1},
+		"@.":                     {true, 1},
+		"www.example.com":        {true, 3},
+		"www.e%ample.com":        {true, 3},
+		"www.example.com.":       {true, 3},
+		"mi\\k.nl.":              {true, 2},
+		"mi\\k.nl":               {true, 2},
+		longestDomain:            {true, 4},
+		longestUnprintableDomain: {true, 4},
 	}
 	for d, ok := range names {
 		l, k := IsDomainName(d)
@@ -174,30 +195,142 @@ func TestIsDomainName(t *testing.T) {
 	}
 }
 
+func TestIsFqdnEscaped(t *testing.T) {
+	for s, expect := range map[string]bool{
+		".":                  true,
+		"\\.":                false,
+		"\\\\.":              true,
+		"\\\\\\.":            false,
+		"\\\\\\\\.":          true,
+		"a.":                 true,
+		"a\\.":               false,
+		"a\\\\.":             true,
+		"a\\\\\\.":           false,
+		"ab.":                true,
+		"ab\\.":              false,
+		"ab\\\\.":            true,
+		"ab\\\\\\.":          false,
+		"..":                 true,
+		".\\.":               false,
+		".\\\\.":             true,
+		".\\\\\\.":           false,
+		"example.org.":       true,
+		"example.org\\.":     false,
+		"example.org\\\\.":   true,
+		"example.org\\\\\\.": false,
+		"example\\.org.":     true,
+		"example\\\\.org.":   true,
+		"example\\\\\\.org.": true,
+		"\\example.org.":     true,
+		"\\\\example.org.":   true,
+		"\\\\\\example.org.": true,
+	} {
+		if got := IsFqdn(s); got != expect {
+			t.Errorf("IsFqdn(%q) = %t, expected %t", s, got, expect)
+		}
+	}
+}
+
+func TestCanonicalName(t *testing.T) {
+	for s, expect := range map[string]string{
+		"":                 ".",
+		".":                ".",
+		"tld":              "tld.",
+		"tld.":             "tld.",
+		"example.test":     "example.test.",
+		"Lower.CASE.test.": "lower.case.test.",
+		"*.Test":           "*.test.",
+	} {
+		if got := CanonicalName(s); got != expect {
+			t.Errorf("CanonicalName(%q) = %q, expected %q", s, got, expect)
+		}
+	}
+}
+
 func BenchmarkSplitLabels(b *testing.B) {
 	for i := 0; i < b.N; i++ {
-		Split("www.example.com")
+		Split("www.example.com.")
 	}
 }
 
 func BenchmarkLenLabels(b *testing.B) {
 	for i := 0; i < b.N; i++ {
-		CountLabel("www.example.com")
+		CountLabel("www.example.com.")
 	}
 }
 
-func BenchmarkCompareLabels(b *testing.B) {
+func BenchmarkCompareDomainName(b *testing.B) {
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
-		CompareDomainName("www.example.com", "aa.example.com")
+		CompareDomainName("www.example.com.", "aa.example.com.")
 	}
 }
 
 func BenchmarkIsSubDomain(b *testing.B) {
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
-		IsSubDomain("www.example.com", "aa.example.com")
-		IsSubDomain("example.com", "aa.example.com")
-		IsSubDomain("miek.nl", "aa.example.com")
+		IsSubDomain("www.example.com.", "aa.example.com.")
+		IsSubDomain("example.com.", "aa.example.com.")
+		IsSubDomain("miek.nl.", "aa.example.com.")
+	}
+}
+
+func BenchmarkNextLabelSimple(b *testing.B) {
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		NextLabel("www.example.com", 0)
+		NextLabel("www.example.com", 5)
+		NextLabel("www.example.com", 12)
+	}
+}
+
+func BenchmarkPrevLabelSimple(b *testing.B) {
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		PrevLabel("www.example.com", 0)
+		PrevLabel("www.example.com", 5)
+		PrevLabel("www.example.com", 12)
+	}
+}
+
+func BenchmarkNextLabelComplex(b *testing.B) {
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		NextLabel(`www\.example.com`, 0)
+		NextLabel(`www\\.example.com`, 0)
+		NextLabel(`www\\\.example.com`, 0)
+	}
+}
+
+func BenchmarkPrevLabelComplex(b *testing.B) {
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		PrevLabel(`www\.example.com`, 10)
+		PrevLabel(`www\\.example.com`, 10)
+		PrevLabel(`www\\\.example.com`, 10)
+	}
+}
+
+func BenchmarkNextLabelMixed(b *testing.B) {
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		NextLabel("www.example.com", 0)
+		NextLabel(`www\.example.com`, 0)
+		NextLabel("www.example.com", 5)
+		NextLabel(`www\\.example.com`, 0)
+		NextLabel("www.example.com", 12)
+		NextLabel(`www\\\.example.com`, 0)
+	}
+}
+
+func BenchmarkPrevLabelMixed(b *testing.B) {
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		PrevLabel("www.example.com", 0)
+		PrevLabel(`www\.example.com`, 10)
+		PrevLabel("www.example.com", 5)
+		PrevLabel(`www\\.example.com`, 10)
+		PrevLabel("www.example.com", 12)
+		PrevLabel(`www\\\.example.com`, 10)
 	}
 }

@@ -59,8 +59,6 @@ func TestPrivateText(t *testing.T) {
 	}
 	if rr.String() != testrecord {
 		t.Errorf("record string representation did not match original %#v != %#v", rr.String(), testrecord)
-	} else {
-		t.Log(rr.String())
 	}
 }
 
@@ -96,8 +94,6 @@ func TestPrivateByteSlice(t *testing.T) {
 
 	if rr1.String() != testrecord {
 		t.Errorf("record string representation did not match original %#v != %#v", rr1.String(), testrecord)
-	} else {
-		t.Log(rr1.String())
 	}
 }
 
@@ -143,7 +139,7 @@ func (rd *VERSION) Len() int {
 }
 
 var smallzone = `$ORIGIN example.org.
-@ SOA	sns.dns.icann.org. noc.dns.icann.org. (
+@ 3600 IN SOA	sns.dns.icann.org. noc.dns.icann.org. (
 		2014091518 7200 3600 1209600 3600
 )
     A   1.2.3.4
@@ -162,10 +158,11 @@ func TestPrivateZoneParser(t *testing.T) {
 	defer dns.PrivateHandleRemove(TypeVERSION)
 
 	r := strings.NewReader(smallzone)
-	for x := range dns.ParseZone(r, ".", "") {
-		if err := x.Error; err != nil {
-			t.Fatal(err)
-		}
-		t.Log(x.RR)
+	z := dns.NewZoneParser(r, ".", "")
+
+	for _, ok := z.Next(); ok; _, ok = z.Next() {
+	}
+	if err := z.Err(); err != nil {
+		t.Fatal(err)
 	}
 }
